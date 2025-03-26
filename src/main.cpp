@@ -1,6 +1,9 @@
 /*********
   Rui Santos
-  Complete project details at https://RandomNerdTutorials.com/esp32-cam-video-streaming-web-server-camera-home-assistant/
+  Complete instructions at https://RandomNerdTutorials.com/esp32-cam-projects-ebook/
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files.
+  The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 *********/
 
 #include "esp_camera.h"
@@ -9,21 +12,26 @@
 #include "img_converters.h"
 #include "Arduino.h"
 #include "fb_gfx.h"
-#include "soc/soc.h"          //disable brownout problems
-#include "soc/rtc_cntl_reg.h" //disable brownout problems
+#include "soc/soc.h"          // disable brownout problems
+#include "soc/rtc_cntl_reg.h" // disable brownout problems
 #include "esp_http_server.h"
+#include <ESP32Servo.h>
 
+// Replace with your network credentials
 const char *ssid = "TP-LINK_19C2";
 const char *password = "82787493";
 
 #define PART_BOUNDARY "123456789000000000000987654321"
 
 #define CAMERA_MODEL_AI_THINKER
+
+#if defined(CAMERA_MODEL_AI_THINKER)
 #define PWDN_GPIO_NUM 32
 #define RESET_GPIO_NUM -1
 #define XCLK_GPIO_NUM 0
 #define SIOD_GPIO_NUM 26
 #define SIOC_GPIO_NUM 27
+
 #define Y9_GPIO_NUM 35
 #define Y8_GPIO_NUM 34
 #define Y7_GPIO_NUM 39
@@ -35,12 +43,87 @@ const char *password = "82787493";
 #define VSYNC_GPIO_NUM 25
 #define HREF_GPIO_NUM 23
 #define PCLK_GPIO_NUM 22
+#else
+#error "Camera model not selected"
+#endif
+
+#define SERVO_1 14
+#define SERVO_2 15
+
+#define SERVO_STEP 5
+
+Servo servo1;
+Servo servo2;
+
+int servo1Pos = 90;
+int servo2Pos = 90;
 
 static const char *_STREAM_CONTENT_TYPE = "multipart/x-mixed-replace;boundary=" PART_BOUNDARY;
 static const char *_STREAM_BOUNDARY = "\r\n--" PART_BOUNDARY "\r\n";
 static const char *_STREAM_PART = "Content-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n";
 
+httpd_handle_t camera_httpd = NULL;
 httpd_handle_t stream_httpd = NULL;
+
+static const char PROGMEM INDEX_HTML[] = R"rawliteral(
+<html>
+  <head>
+    <title>ESP32-CAM Robot</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+      body { font-family: Arial; text-align: center; margin:0px auto; padding-top: 30px;}
+      table { margin-left: auto; margin-right: auto; }
+      td { padding: 8 px; }
+      .button {
+        background-color: #2f4468;
+        border: none;
+        color: white;
+        padding: 10px 20px;
+        text-align: center;
+        text-decoration: none;
+        display: inline-block;
+        font-size: 18px;
+        margin: 6px 3px;
+        cursor: pointer;
+        -webkit-touch-callout: none;
+        -webkit-user-select: none;
+        -khtml-user-select: none;
+        -moz-user-select: none;
+        -ms-user-select: none;
+        user-select: none;
+        -webkit-tap-highlight-color: rgba(0,0,0,0);
+      }
+      img {  width: auto ;
+        max-width: 100% ;
+        height: auto ; 
+      }
+    </style>
+  </head>
+  <body>
+    <h1>ESP32-CAM Pan and Tilt</h1>
+    <img src="" id="photo" >
+    <table>
+      <tr><td colspan="3" align="center"><button class="button" onmousedown="toggleCheckbox('up');" ontouchstart="toggleCheckbox('up');">Up</button></td></tr>
+      <tr><td align="center"><button class="button" onmousedown="toggleCheckbox('left');" ontouchstart="toggleCheckbox('left');">Left</button></td><td align="center"></td><td align="center"><button class="button" onmousedown="toggleCheckbox('right');" ontouchstart="toggleCheckbox('right');">Right</button></td></tr>
+      <tr><td colspan="3" align="center"><button class="button" onmousedown="toggleCheckbox('down');" ontouchstart="toggleCheckbox('down');">Down</button></td></tr>                   
+    </table>
+   <script>
+   function toggleCheckbox(x) {
+     var xhr = new XMLHttpRequest();
+     xhr.open("GET", "/action?go=" + x, true);
+     xhr.send();
+   }
+   window.onload = document.getElementById("photo").src = window.location.href.slice(0, -1) + ":81/stream";
+  </script>
+  </body>
+</html>
+)rawliteral";
+
+static esp_err_t index_handler(httpd_req_t *req)
+{
+  httpd_resp_set_type(req, "text/html");
+  return httpd_resp_send(req, (const char *)INDEX_HTML, strlen(INDEX_HTML));
+}
 
 static esp_err_t stream_handler(httpd_req_t *req)
 {
@@ -119,27 +202,155 @@ static esp_err_t stream_handler(httpd_req_t *req)
   return res;
 }
 
+static esp_err_t cmd_handler(httpd_req_t *req)
+{
+  char *buf;
+  size_t buf_len;
+  char variable[32] = {
+      0,
+  };
+
+  buf_len = httpd_req_get_url_query_len(req) + 1;
+  if (buf_len > 1)
+  {
+    buf = (char *)malloc(buf_len);
+    if (!buf)
+    {
+      httpd_resp_send_500(req);
+      return ESP_FAIL;
+    }
+    if (httpd_req_get_url_query_str(req, buf, buf_len) == ESP_OK)
+    {
+      if (httpd_query_key_value(buf, "go", variable, sizeof(variable)) == ESP_OK)
+      {
+      }
+      else
+      {
+        free(buf);
+        httpd_resp_send_404(req);
+        return ESP_FAIL;
+      }
+    }
+    else
+    {
+      free(buf);
+      httpd_resp_send_404(req);
+      return ESP_FAIL;
+    }
+    free(buf);
+  }
+  else
+  {
+    httpd_resp_send_404(req);
+    return ESP_FAIL;
+  }
+
+  sensor_t *s = esp_camera_sensor_get();
+  // flip the camera vertically
+  // s->set_vflip(s, 1);          // 0 = disable , 1 = enable
+  //  mirror effect
+  // s->set_hmirror(s, 1);          // 0 = disable , 1 = enable
+
+  int res = 0;
+
+  if (!strcmp(variable, "up"))
+  {
+    if (servo1Pos <= 170)
+    {
+      servo1Pos += 10;
+      servo1.write(servo1Pos);
+    }
+    Serial.println(servo1Pos);
+    Serial.println("Up");
+  }
+  else if (!strcmp(variable, "left"))
+  {
+    if (servo2Pos <= 160)
+    {
+      servo2Pos += 20;
+      servo2.write(servo2Pos);
+    }
+    Serial.println(servo2Pos);
+    Serial.println("Left");
+  }
+  else if (!strcmp(variable, "right"))
+  {
+    if (servo2Pos >= 20)
+    {
+      servo2Pos -= 20;
+      servo2.write(servo2Pos);
+    }
+    Serial.println(servo2Pos);
+    Serial.println("Right");
+  }
+  else if (!strcmp(variable, "down"))
+  {
+    if (servo1Pos >= 10)
+    {
+      servo1Pos -= 10;
+      servo1.write(servo1Pos);
+    }
+    Serial.println(servo1Pos);
+    Serial.println("Down");
+  }
+  else
+  {
+    res = -1;
+  }
+
+  if (res)
+  {
+    return httpd_resp_send_500(req);
+  }
+
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  return httpd_resp_send(req, NULL, 0);
+}
+
 void startCameraServer()
 {
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
   config.server_port = 80;
-
   httpd_uri_t index_uri = {
       .uri = "/",
       .method = HTTP_GET,
-      .handler = stream_handler,
+      .handler = index_handler,
       .user_ctx = NULL};
 
-  // Serial.printf("Starting web server on port: '%d'\n", config.server_port);
+  httpd_uri_t cmd_uri = {
+      .uri = "/action",
+      .method = HTTP_GET,
+      .handler = cmd_handler,
+      .user_ctx = NULL};
+  httpd_uri_t stream_uri = {
+      .uri = "/stream",
+      .method = HTTP_GET,
+      .handler = stream_handler,
+      .user_ctx = NULL};
+  if (httpd_start(&camera_httpd, &config) == ESP_OK)
+  {
+    httpd_register_uri_handler(camera_httpd, &index_uri);
+    httpd_register_uri_handler(camera_httpd, &cmd_uri);
+  }
+  config.server_port += 1;
+  config.ctrl_port += 1;
   if (httpd_start(&stream_httpd, &config) == ESP_OK)
   {
-    httpd_register_uri_handler(stream_httpd, &index_uri);
+    httpd_register_uri_handler(stream_httpd, &stream_uri);
   }
 }
 
 void setup()
 {
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); // disable brownout detector
+  servo1.setPeriodHertz(50);                 // standard 50 hz servo
+  servo2.setPeriodHertz(50);                 // standard 50 hz servo
+
+  servo1.attach(SERVO_1, 500, 2500);
+  servo2.attach(SERVO_2, 500, 2500);
+
+  servo1.write(servo1Pos);
+  servo2.write(servo2Pos);
 
   Serial.begin(115200);
   Serial.setDebugOutput(false);
@@ -165,9 +376,19 @@ void setup()
   config.pin_reset = RESET_GPIO_NUM;
   config.xclk_freq_hz = 20000000;
   config.pixel_format = PIXFORMAT_JPEG;
-  config.frame_size = FRAMESIZE_SVGA;
-  config.jpeg_quality = 20;
-  config.fb_count = 2;
+
+  if (psramFound())
+  {
+    config.frame_size = FRAMESIZE_VGA;
+    config.jpeg_quality = 10;
+    config.fb_count = 2;
+  }
+  else
+  {
+    config.frame_size = FRAMESIZE_SVGA;
+    config.jpeg_quality = 12;
+    config.fb_count = 1;
+  }
 
   // Camera init
   esp_err_t err = esp_camera_init(&config);
@@ -184,10 +405,11 @@ void setup()
     Serial.print(".");
   }
   Serial.println("");
+  Serial.println("psRAM: " + psramFound());
   Serial.println("WiFi connected");
-
+  
   Serial.print("Camera Stream Ready! Go to: http://");
-  Serial.print(WiFi.localIP());
+  Serial.println(WiFi.localIP());
 
   // Start streaming web server
   startCameraServer();
@@ -195,5 +417,4 @@ void setup()
 
 void loop()
 {
-  delay(1);
 }
