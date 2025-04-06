@@ -62,10 +62,16 @@ const char PROGMEM INDEX_HTML[] = R"rawliteral(
         </tr>
         <tr>
             <td style="text-align:center">
+                <button class="button" onmousedown="toggleCheckbox('lefter');"
+                    ontouchstart="toggleCheckbox('lefter');">Lefter</button>
                 <button class="button" onmousedown="toggleCheckbox('left');"
                     ontouchstart="toggleCheckbox('left');">Left</button>
+                <button class="button" onmousedown="toggleCheckbox('middle');"
+                    ontouchstart="toggleCheckbox('middle');">Middle</button>
                 <button class="button" onmousedown="toggleCheckbox('right');"
                     ontouchstart="toggleCheckbox('right');">Right</button>
+                <button class="button" onmousedown="toggleCheckbox('righter');"
+                    ontouchstart="toggleCheckbox('righter');">Righter</button>
             </td>
         </tr>
     </table>

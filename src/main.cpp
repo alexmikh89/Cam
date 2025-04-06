@@ -41,7 +41,7 @@ const char *password = "******";
 #endif
 
 #define SERVO_1 12
-#define SERVO_STEP 30
+#define SERVO_STEP 20
 
 Servo servo1;
 
@@ -53,6 +53,14 @@ static const char *_STREAM_PART = "Content-Type: image/jpeg\r\nContent-Length: %
 
 httpd_handle_t camera_httpd = NULL;
 httpd_handle_t stream_httpd = NULL;
+
+static void turnServo(int angle)
+{
+  servo1Pos = angle;
+  servo1.write(servo1Pos);
+  delay(500);
+  servo1.release();
+}
 
 static esp_err_t index_handler(httpd_req_t *req)
 {
@@ -182,49 +190,44 @@ static esp_err_t cmd_handler(httpd_req_t *req)
 
   sensor_t *s = esp_camera_sensor_get();
   int res = 0;
-  int counter = 0;
-  if (!strcmp(variable, "left"))
+  if (!strcmp(variable, "lefter"))
+  {
+    servo1Pos = 180;
+    turnServo(servo1Pos);
+  }
+  else if (!strcmp(variable, "left"))
   {
     if (servo1Pos <= (180 - SERVO_STEP))
     {
-      servo1.attach(SERVO_1, 500, 2500);
       servo1Pos += SERVO_STEP;
-      servo1.write(servo1Pos);
-      delay(1000);
-      servo1.detach();
+      turnServo(servo1Pos);
     }
+  }
+  else if (!strcmp(variable, "middle"))
+  {
+    servo1Pos = 90;
+    turnServo(servo1Pos);
   }
   else if (!strcmp(variable, "right"))
   {
     if (servo1Pos >= SERVO_STEP)
     {
-      servo1.attach(SERVO_1, 500, 2500);
       servo1Pos -= SERVO_STEP;
-      servo1.write(servo1Pos);
-      delay(1000);
-      servo1.detach();
+      turnServo(servo1Pos);
     }
+  }
+  else if (!strcmp(variable, "righter"))
+  {
+    servo1Pos = 0;
+    turnServo(servo1Pos);
   }
   else if (!strcmp(variable, "readRRSI"))
   {
-    int rrsiVal = WiFi.RSSI();
-    // server.send(200, "text/plane", rrsiVal); // Send RSSI value only to client ajax request
-
-    // httpd_send(req, rrsiVal, buf_len); // Send RSSI value only to client ajax request
-
     char str[12];
-    int number = WiFi.RSSI();   // Integer to be converted
-    sprintf(str, "%d", number); // Convert integer to string
-
+    sprintf(str, "%d", WiFi.RSSI()); // Convert integer to string
     char *resp = str;
 
-    // sprintf(str, "%d", WiFi.RSSI()); // Convert integer to string
-
-    // Send the response to the client
     httpd_resp_send(req, resp, strlen(resp));
-
-    Serial.print("RRSI: ");
-    Serial.println(rrsiVal);
   }
   else
   {
@@ -336,8 +339,8 @@ void setup()
   config.pixel_format = PIXFORMAT_JPEG;
 
   config.frame_size = FRAMESIZE_VGA;
-  config.jpeg_quality = 40;
-  config.fb_count = 10;
+  config.jpeg_quality = 30;
+  config.fb_count = 2;
 
   // Camera init
   esp_err_t err = esp_camera_init(&config);
@@ -362,9 +365,7 @@ void setup()
 
   servo1.setPeriodHertz(50); // standard 50 hz servo
   servo1.attach(SERVO_1, 500, 2500);
-  servo1.write(servo1Pos);
-  delay(1000);
-  servo1.detach();
+  turnServo(servo1Pos);
 }
 
 void loop()
