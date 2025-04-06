@@ -17,9 +17,9 @@
 #include "esp_http_server.h"
 #include <ESP32Servo.h>
 
-// Replace with your network credentials
-const char *ssid = "TP-LINK_19C2";
-const char *password = "82787493";
+// Network credentials
+const char *ssid = "**********";
+const char *password = "******";
 
 #define PART_BOUNDARY "123456789000000000000987654321"
 
@@ -47,16 +47,13 @@ const char *password = "82787493";
 #error "Camera model not selected"
 #endif
 
-#define SERVO_1 14
-#define SERVO_2 15
+#define SERVO_1 12
 
-#define SERVO_STEP 5
+#define SERVO_STEP 30
 
 Servo servo1;
-Servo servo2;
 
 int servo1Pos = 90;
-int servo2Pos = 90;
 
 static const char *_STREAM_CONTENT_TYPE = "multipart/x-mixed-replace;boundary=" PART_BOUNDARY;
 static const char *_STREAM_BOUNDARY = "\r\n--" PART_BOUNDARY "\r\n";
@@ -68,7 +65,7 @@ httpd_handle_t stream_httpd = NULL;
 static const char PROGMEM INDEX_HTML[] = R"rawliteral(
 <html>
   <head>
-    <title>ESP32-CAM Robot</title>
+    <title>ESP32-CAM</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
       body { font-family: Arial; text-align: center; margin:0px auto; padding-top: 30px;}
@@ -100,12 +97,11 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
     </style>
   </head>
   <body>
-    <h1>ESP32-CAM Pan and Tilt</h1>
-    <img src="" id="photo" >
+    <h1>ESP32-CAM Pan 2</h1>
     <table>
-      <tr><td colspan="3" align="center"><button class="button" onmousedown="toggleCheckbox('up');" ontouchstart="toggleCheckbox('up');">Up</button></td></tr>
-      <tr><td align="center"><button class="button" onmousedown="toggleCheckbox('left');" ontouchstart="toggleCheckbox('left');">Left</button></td><td align="center"></td><td align="center"><button class="button" onmousedown="toggleCheckbox('right');" ontouchstart="toggleCheckbox('right');">Right</button></td></tr>
-      <tr><td colspan="3" align="center"><button class="button" onmousedown="toggleCheckbox('down');" ontouchstart="toggleCheckbox('down');">Down</button></td></tr>                   
+      <tr><td align="center"> <img src="" id="photo"> </td></tr>
+      <tr><td align="left"> <span style="color: white; background: rgba(0,0,0,0.5); padding: 3px; border-radius: 5px; margin-top: 10px; width: 100%; fit-content; text-align: left;">Live Camera Feed</span></tr>
+      <tr><td align="center"><button class="button" onmousedown="toggleCheckbox('left');" ontouchstart="toggleCheckbox('left');">Left</button><button class="button" onmousedown="toggleCheckbox('right');" ontouchstart="toggleCheckbox('right');">Right</button></td></tr>
     </table>
    <script>
    function toggleCheckbox(x) {
@@ -246,52 +242,29 @@ static esp_err_t cmd_handler(httpd_req_t *req)
   }
 
   sensor_t *s = esp_camera_sensor_get();
-  // flip the camera vertically
-  // s->set_vflip(s, 1);          // 0 = disable , 1 = enable
-  //  mirror effect
-  // s->set_hmirror(s, 1);          // 0 = disable , 1 = enable
-
   int res = 0;
 
-  if (!strcmp(variable, "up"))
+  if (!strcmp(variable, "left"))
   {
-    if (servo1Pos <= 170)
+    if (servo1Pos <= (180 - SERVO_STEP))
     {
-      servo1Pos += 10;
+      servo1.attach(SERVO_1, 500, 2500);
+      servo1Pos += SERVO_STEP;
       servo1.write(servo1Pos);
+      delay(1000);
+      servo1.detach();
     }
-    Serial.println(servo1Pos);
-    Serial.println("Up");
-  }
-  else if (!strcmp(variable, "left"))
-  {
-    if (servo2Pos <= 160)
-    {
-      servo2Pos += 20;
-      servo2.write(servo2Pos);
-    }
-    Serial.println(servo2Pos);
-    Serial.println("Left");
   }
   else if (!strcmp(variable, "right"))
   {
-    if (servo2Pos >= 20)
+    if (servo1Pos >= SERVO_STEP)
     {
-      servo2Pos -= 20;
-      servo2.write(servo2Pos);
-    }
-    Serial.println(servo2Pos);
-    Serial.println("Right");
-  }
-  else if (!strcmp(variable, "down"))
-  {
-    if (servo1Pos >= 10)
-    {
-      servo1Pos -= 10;
+      servo1.attach(SERVO_1, 500, 2500);
+      servo1Pos -= SERVO_STEP;
       servo1.write(servo1Pos);
+      delay(1000);
+      servo1.detach();
     }
-    Serial.println(servo1Pos);
-    Serial.println("Down");
   }
   else
   {
@@ -340,17 +313,43 @@ void startCameraServer()
   }
 }
 
+bool connectWifi()
+{
+  WiFi.mode(WIFI_STA);
+
+  Serial.print("Connecting to Wi-Fi ");
+  Serial.println(ssid);
+
+  WiFi.begin(ssid, password);
+  int attemptCount = 1;
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    Serial.print("Connection attempt ");
+    Serial.println(attemptCount);
+    // uint8_t status = WiFi.waitForConnectResult(attemptCount * 1000);
+    delay(1000);
+    attemptCount++;
+    if (WiFi.status() != WL_CONNECT_FAILED)
+    {
+      Serial.print("Wifi connection failed with statuscode ");
+      Serial.println(WiFi.status());
+    }
+    if (attemptCount > 60)
+    {
+      Serial.print("Wifi connection failed with statuscode ");
+      Serial.println(WiFi.status());
+      return false;
+    }
+  }
+
+  Serial.println("");
+  Serial.println("WiFi connected");
+  return true;
+}
+
 void setup()
 {
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); // disable brownout detector
-  servo1.setPeriodHertz(50);                 // standard 50 hz servo
-  servo2.setPeriodHertz(50);                 // standard 50 hz servo
-
-  servo1.attach(SERVO_1, 500, 2500);
-  servo2.attach(SERVO_2, 500, 2500);
-
-  servo1.write(servo1Pos);
-  servo2.write(servo2Pos);
 
   Serial.begin(115200);
   Serial.setDebugOutput(false);
@@ -374,47 +373,43 @@ void setup()
   config.pin_sccb_scl = SIOC_GPIO_NUM;
   config.pin_pwdn = PWDN_GPIO_NUM;
   config.pin_reset = RESET_GPIO_NUM;
-  config.xclk_freq_hz = 20000000;
+  config.xclk_freq_hz = 10000000;
   config.pixel_format = PIXFORMAT_JPEG;
 
-  if (psramFound())
-  {
-    config.frame_size = FRAMESIZE_VGA;
-    config.jpeg_quality = 10;
-    config.fb_count = 2;
-  }
-  else
-  {
-    config.frame_size = FRAMESIZE_SVGA;
-    config.jpeg_quality = 12;
-    config.fb_count = 1;
-  }
+  config.frame_size = FRAMESIZE_VGA;
+  config.jpeg_quality = 40;
+  config.fb_count = 10;
 
   // Camera init
   esp_err_t err = esp_camera_init(&config);
+  sensor_t *s = esp_camera_sensor_get();
+  s->set_hmirror(s, 0); // 0 = disable , 1 = enable
+  s->set_vflip(s, 0);   // 0 = disable , 1 = enable
+
   if (err != ESP_OK)
   {
     Serial.printf("Camera init failed with error 0x%x", err);
     return;
   }
-  // Wi-Fi connection
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED)
-  {
-    delay(500);
-    Serial.print(".");
-  }
-  Serial.println("");
-  Serial.println("psRAM: " + psramFound());
-  Serial.println("WiFi connected");
-  
-  Serial.print("Camera Stream Ready! Go to: http://");
-  Serial.println(WiFi.localIP());
 
-  // Start streaming web server
-  startCameraServer();
+  // Wi-Fi connection
+  if (connectWifi())
+  {
+    Serial.print("Camera Stream Ready! Go to: http://");
+    Serial.println(WiFi.localIP());
+    // Start streaming web server
+    startCameraServer();
+  }
+
+  servo1.setPeriodHertz(50); // standard 50 hz servo
+  servo1.attach(SERVO_1, 500, 2500);
+  servo1.write(servo1Pos);
+  delay(1000);
+  servo1.detach();
 }
 
 void loop()
 {
+  Serial.print("RRSI: ");
+  Serial.println(WiFi.RSSI());
 }
