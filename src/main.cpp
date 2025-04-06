@@ -1,11 +1,3 @@
-/*********
-  Rui Santos
-  Complete instructions at https://RandomNerdTutorials.com/esp32-cam-projects-ebook/
-
-  Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files.
-  The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-*********/
-
 #include "esp_camera.h"
 #include <WiFi.h>
 #include "esp_timer.h"
@@ -16,6 +8,7 @@
 #include "soc/rtc_cntl_reg.h" // disable brownout problems
 #include "esp_http_server.h"
 #include <ESP32Servo.h>
+#include "index.h"
 
 // Network credentials
 const char *ssid = "**********";
@@ -48,7 +41,6 @@ const char *password = "******";
 #endif
 
 #define SERVO_1 12
-
 #define SERVO_STEP 30
 
 Servo servo1;
@@ -61,59 +53,6 @@ static const char *_STREAM_PART = "Content-Type: image/jpeg\r\nContent-Length: %
 
 httpd_handle_t camera_httpd = NULL;
 httpd_handle_t stream_httpd = NULL;
-
-static const char PROGMEM INDEX_HTML[] = R"rawliteral(
-<html>
-  <head>
-    <title>ESP32-CAM</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <style>
-      body { font-family: Arial; text-align: center; margin:0px auto; padding-top: 30px;}
-      table { margin-left: auto; margin-right: auto; }
-      td { padding: 8 px; }
-      .button {
-        background-color: #2f4468;
-        border: none;
-        color: white;
-        padding: 10px 20px;
-        text-align: center;
-        text-decoration: none;
-        display: inline-block;
-        font-size: 18px;
-        margin: 6px 3px;
-        cursor: pointer;
-        -webkit-touch-callout: none;
-        -webkit-user-select: none;
-        -khtml-user-select: none;
-        -moz-user-select: none;
-        -ms-user-select: none;
-        user-select: none;
-        -webkit-tap-highlight-color: rgba(0,0,0,0);
-      }
-      img {  width: auto ;
-        max-width: 100% ;
-        height: auto ; 
-      }
-    </style>
-  </head>
-  <body>
-    <h1>ESP32-CAM Pan 2</h1>
-    <table>
-      <tr><td align="center"> <img src="" id="photo"> </td></tr>
-      <tr><td align="left"> <span style="color: white; background: rgba(0,0,0,0.5); padding: 3px; border-radius: 5px; margin-top: 10px; width: 100%; fit-content; text-align: left;">Live Camera Feed</span></tr>
-      <tr><td align="center"><button class="button" onmousedown="toggleCheckbox('left');" ontouchstart="toggleCheckbox('left');">Left</button><button class="button" onmousedown="toggleCheckbox('right');" ontouchstart="toggleCheckbox('right');">Right</button></td></tr>
-    </table>
-   <script>
-   function toggleCheckbox(x) {
-     var xhr = new XMLHttpRequest();
-     xhr.open("GET", "/action?go=" + x, true);
-     xhr.send();
-   }
-   window.onload = document.getElementById("photo").src = window.location.href.slice(0, -1) + ":81/stream";
-  </script>
-  </body>
-</html>
-)rawliteral";
 
 static esp_err_t index_handler(httpd_req_t *req)
 {
@@ -243,7 +182,7 @@ static esp_err_t cmd_handler(httpd_req_t *req)
 
   sensor_t *s = esp_camera_sensor_get();
   int res = 0;
-
+  int counter = 0;
   if (!strcmp(variable, "left"))
   {
     if (servo1Pos <= (180 - SERVO_STEP))
@@ -265,6 +204,27 @@ static esp_err_t cmd_handler(httpd_req_t *req)
       delay(1000);
       servo1.detach();
     }
+  }
+  else if (!strcmp(variable, "readRRSI"))
+  {
+    int rrsiVal = WiFi.RSSI();
+    // server.send(200, "text/plane", rrsiVal); // Send RSSI value only to client ajax request
+
+    // httpd_send(req, rrsiVal, buf_len); // Send RSSI value only to client ajax request
+
+    char str[12];
+    int number = WiFi.RSSI();   // Integer to be converted
+    sprintf(str, "%d", number); // Convert integer to string
+
+    char *resp = str;
+
+    // sprintf(str, "%d", WiFi.RSSI()); // Convert integer to string
+
+    // Send the response to the client
+    httpd_resp_send(req, resp, strlen(resp));
+
+    Serial.print("RRSI: ");
+    Serial.println(rrsiVal);
   }
   else
   {
@@ -326,7 +286,6 @@ bool connectWifi()
   {
     Serial.print("Connection attempt ");
     Serial.println(attemptCount);
-    // uint8_t status = WiFi.waitForConnectResult(attemptCount * 1000);
     delay(1000);
     attemptCount++;
     if (WiFi.status() != WL_CONNECT_FAILED)
@@ -410,6 +369,4 @@ void setup()
 
 void loop()
 {
-  Serial.print("RRSI: ");
-  Serial.println(WiFi.RSSI());
 }
